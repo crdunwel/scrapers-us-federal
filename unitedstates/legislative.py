@@ -7,8 +7,8 @@ import sys
 
 class UnitedStatesLegislativeScraper(Scraper):       
     def yamlize(self, url):
-        resp = self.urlopen(url)
-        return yaml.safe_load(resp)
+        resp = self.get(url)
+        return yaml.safe_load(resp.text)
 
     def get_url(self, what):
         return ("https://raw.githubusercontent.com/"

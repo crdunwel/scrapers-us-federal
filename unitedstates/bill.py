@@ -1,18 +1,42 @@
-from pupa.scrape import Scraper, Person, Membership, Organization, Post, Bill
-from pupa import settings
-
 import subprocess
 import os
 import re
 import json
-import dateutil.parser
+import traceback
+
+from pupa.scrape import Scraper, Bill
+from pupa import settings
+
 
 def find_files(directory, pattern):
+    """
+    Walk given directory and finds all files that match the given pattern.
+    
+    @param directory: directory to walk
+    @type directory: string
+    @param pattern: regular expression as string to match
+    @type pattern: string
+    @return: generator for matched file paths
+    @rtype: generator
+    """
     for root, dirs, files in os.walk(directory):
         for basename in files:
             filename = os.path.join(root, basename)
             if re.match(pattern, filename):
                 yield filename
+
+
+def datetime_to_date(datetime_str):
+    """
+    Converts datetime string from unitedstates scraper to
+
+    @param datetime_str:
+    @type datetime_str:
+    @return: truncate datetime string to just a date
+    @rtype: string
+    """
+    return datetime_str.split('T')[0] if 'T' in datetime_str else datetime_str
+
 
 class UnitedStatesBillScraper(Scraper):
 
@@ -97,7 +121,7 @@ class UnitedStatesBillScraper(Scraper):
         'rdh': 'Received in House'
     }
 
-    def run_unitedstates_bill_scraper(self):
+    def _run_unitedstates_bill_scraper(self):
         """
         Runs the unitedstates scrapers using the virtualenv and data path set in UnitedStates.
         Must set environmental variables for the python virtualenv that you are using and the
@@ -121,23 +145,26 @@ class UnitedStatesBillScraper(Scraper):
             print('You must set environmental variables for the unitedstates/congress path (US_CONGRESS_PATH)'
                   'and the virtualenv python bin path (US_VIRTENV_PYTHON_BIN_PATH) for that project.')
 
-    def scrape_bills(self):
+    def _scrape_bills(self):
         """
         Does the following
 
         1) Scrapes bill data from unitedstates project and saves the data to path specified in UnitedStates module
         2) Iterates over bill data and converts each one to an OCD-compliant bill model.
         3) Yields the OCD-compliant bill model instance
-        @return: yield Bill instance
+
+        @return: generator for federal US bills in OCD-compliant format
+        @rtype: generator
         """
 
         # run scraper first to pull in all the bill data
-        self.run_unitedstates_bill_scraper()
+        self._run_unitedstates_bill_scraper()
         # iterate over all the files and build and yield Bill objects
-        for filename in find_files(settings.SCRAPED_DATA_DIR, '.*[a-z]*\/[a-z]*[0-9]*\/data\.json'):
+        for filename in find_files(settings.SCRAPED_DATA_DIR, '.*/data/[0-9]+/bills/[^\/]+/[^\/]+/data.json'):
             try:
                 with open(filename) as json_file:
                     json_data = json.load(json_file)
+
                     # Initialize Object
                     bill = Bill(self.TYPE_MAP[json_data['bill_type']]['canonical'] + ' ' + json_data['number'],
                                 json_data['congress'],
@@ -145,26 +172,29 @@ class UnitedStatesBillScraper(Scraper):
                                 chamber=self.TYPE_MAP[json_data['bill_type']]['chamber']
                     )
 
-                    # Basics
-                    bill.type = [json_data['bill_type']]
-                    bill.subject = json_data['subjects']
-                    bill.add_summary(json_data['summary']['as'],
-                                     json_data['summary']['text'],
-                                     json_data['summary']['date'])
+                    # add source of data
+                    bill.add_source(json_data['url'], note='all')
 
-                    # Common Fields
-                    bill.sources = [{'url': json_data['url'], 'note': 'all'}]
+                    # add subjects
+                    for subject in json_data['subjects']:
+                        bill.add_subject(subject)
 
-                    # Other/Related Bills
-                    bill.other_titles = [{'note': t['type'], 'title': t['title']} for t in json_data['titles']]
-                    # change value of relationship_type to 'type' field from json_data when permitted by schema
-                    bill.related_bills = [{'session': b['session'], 'name': b['name'], 'relationship_type':'companion'}
-                                          for b in json_data['related_bills']]
+                    # add summary
+                    bill.add_abstract(json_data['summary']['text'],
+                                      json_data['summary']['as'],
+                                      json_data['summary']['date'])
 
-                    # add primary sponsor
+                    # add titles
+                    for item in json_data['titles']:
+                        bill.add_title(item['title'], item['type'])
+
+                    # add other/related Bills
+                    for b in json_data['related_bills']:
+                        bill.add_related_bill(b['name'], b['session'], 'companion')
+
+                    # add sponsor
                     bill.add_sponsorship_by_identifier(json_data['sponsor']['name'], 'person', 'person', True,
-                                                       scheme='thomas_id',
-                                                       identifier=json_data['sponsor']['thomas_id'],
+                                                       scheme='thomas_id', identifier=json_data['sponsor']['thomas_id'],
                                                        chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'])
 
                     # add cosponsors
@@ -174,12 +204,15 @@ class UnitedStatesBillScraper(Scraper):
                                                            chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'])
 
                     # add introduced_at and actions
-                    bill.actions.append({'date': json_data['introduced_at'], 'type': 'introduced',
-                                         'description': 'date of introduction',
-                                         'actor': self.TYPE_MAP[json_data['bill_type']]['chamber'],
-                                         'related_entities': []})
+                    bill.add_action('date of introduction', datetime_to_date(json_data['introduced_at']),
+                                    organization='United States Congress',
+                                    chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'],
+                                    classification='introduced',
+                                    related_entities=[])
+
+                    # add other actions
                     for action in json_data['actions']:
-                        bill.actions.append({'date': action['acted_at'],
+                        bill.actions.append({'date': datetime_to_date(action['acted_at']),
                                              'type': [action['type']],
                                              'description': action['text'],
                                              'actor': self.TYPE_MAP[json_data['bill_type']]['chamber'],
@@ -188,14 +221,14 @@ class UnitedStatesBillScraper(Scraper):
 
                     # add bill versions
                     for version_path in find_files(os.path.join(settings.SCRAPED_DATA_DIR,
-                                                   'data', bill.session, 'bills', json_data['bill_type'],
+                                                   'data', bill.legislative_session, 'bills', json_data['bill_type'],
                                                    json_data['bill_type'] + json_data['number'],
-                                                   'text-versions'), '*\.json'):
+                                                   'text-versions'), '/.*/*\.json'):
                         try:
                             with open(version_path) as version_file:
                                 version_json_data = json.load(version_file)
-                                for k, v in version_json_data['urls'].iteritems():
-                                    bill.versions.append({'date': version_json_data['issued_on'],
+                                for k, v in version_json_data['urls'].items():
+                                    bill.versions.append({'date': datetime_to_date(version_json_data['issued_on']),
                                                           'type': version_json_data['version_code'],
                                                           'name': self.VERSION_MAP[version_json_data['version_code']],
                                                           'links': [{'mimetype': k, 'url': v}]})
@@ -203,11 +236,16 @@ class UnitedStatesBillScraper(Scraper):
                             print("Unable to open or parse file with path " + version_path)
                             continue
 
+                    # finally yield bill object
                     yield bill
 
             except IOError:
-                print("Unable to open or parse file with path " + filename)
+                print("Unable to open file with path " + filename)
+            except KeyError:
+                print("Unable to parse file with path " + filename)
+            except:
+                traceback.format_exc()
                 continue
 
     def scrape(self):
-        yield from self.scrape_bills()
+        yield from self._scrape_bills()
