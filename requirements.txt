@@ -1,3 +1,5 @@
 pupa
 pyyaml
 python-dateutil
+unidecode
+pytz

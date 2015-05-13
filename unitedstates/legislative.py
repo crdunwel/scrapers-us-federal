@@ -5,7 +5,8 @@ from collections import defaultdict
 import yaml
 import sys
 
-class UnitedStatesLegislativeScraper(Scraper):       
+class UnitedStatesLegislativeScraper(Scraper):
+
     def yamlize(self, url):
         resp = self.get(url)
         return yaml.safe_load(resp.text)

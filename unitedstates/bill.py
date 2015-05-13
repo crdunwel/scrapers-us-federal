@@ -1,125 +1,15 @@
 import subprocess
 import os
-import re
 import json
 import traceback
 
 from pupa.scrape import Scraper, Bill
 from pupa import settings
 
-
-def find_files(directory, pattern):
-    """
-    Walk given directory and finds all files that match the given pattern.
-    
-    @param directory: directory to walk
-    @type directory: string
-    @param pattern: regular expression as string to match
-    @type pattern: string
-    @return: generator for matched file paths
-    @rtype: generator
-    """
-    for root, dirs, files in os.walk(directory):
-        for basename in files:
-            filename = os.path.join(root, basename)
-            if re.match(pattern, filename):
-                yield filename
-
-
-def datetime_to_date(datetime_str):
-    """
-    Converts datetime string from unitedstates scraper to
-
-    @param datetime_str:
-    @type datetime_str:
-    @return: truncate datetime string to just a date
-    @rtype: string
-    """
-    return datetime_str.split('T')[0] if 'T' in datetime_str else datetime_str
-
+from . import constants
+from .util import find_files, datetime_to_date
 
 class UnitedStatesBillScraper(Scraper):
-
-    # https://github.com/unitedstates/congress/wiki/bills#basic-information
-    TYPE_MAP = {
-         # "H.R. 1234". It stands for House of Representatives, but it is the prefix used for bills introduced in the House.
-        'hr': {'chamber':'lower', 'canonical': 'HR'},
-         # "H.Res. 1234". It stands for House Simple Resolution.
-        'hres': {'chamber':'lower', 'canonical': 'HRes'},
-         # "H.Con.Res. 1234". It stands for House Concurrent Resolution.
-        'hconres': {'chamber':'joint', 'canonical':'HConRes'},
-         # "H.J.Res. 1234". It stands for House Joint Resolution.
-        'hjres': {'chamber':'joint', 'canonical':'HJRes'},
-         # "S. 1234". It stands for Senate and it is the prefix used for bills introduced in the Senate. Any abbreviation besides "S." is incorrect.
-        's': {'chamber':'upper', 'canonical': 'S'},
-         # "S.Res. 1234". It stands for Senate Simple Resolution.
-        'sres': {'chamber':'upper', 'canonical': 'SRes'},
-         # "S.Con.Res. 1234". It stands for Senate Concurrent Resolution.
-        'sconres': {'chamber':'joint', 'canonical': 'SConRes'},
-        # "S.J.Res. 1234". It stands for Senate Joint Resolution.
-        'sjres': {'chamber':'joint', 'canonical': 'SJRes'}
-    }
-
-    TITLE_CHAMBER_MAP = {
-        'Rep': 'lower',
-        'Sen': 'upper'
-    }
-
-    # http://www.gpo.gov/help/index.html#about_congressional_bills.htm
-    VERSION_MAP = {
-        'eh': 'Engrossed in House',
-        'rcs': 'Reference Change Senate',
-        'iph': 'Indefinitely Postponed House',
-        'cdh': 'Committee Discharged House',
-        'ris': 'Referral Instructions Senate',
-        'rah': 'Referred with Amendments House',
-        'pwah': 'Ordered to be Printed with House Amendment',
-        'ih': 'Introduced in House',
-        'as': 'Amendment Ordered to be Printed Senate',
-        'renr': 'Re-enrolled Bill',
-        'ras': 'Referred with Amendments Senate',
-        'rts': 'Referred to Committee Senate',
-        'cds': 'Committee Discharged Senate',
-        'sas': 'Additional Sponsors Senate',
-        'lts': 'Laid on Table in Senate',
-        'pap': 'Printed as Passed',
-        'pp': 'Public Print',
-        'rfh': 'Referred in House',
-        'pav': 'Previous Action Vitiated',
-        'ash': 'Additional Sponsors House',
-        'pcs': 'Placed on Calendar Senate',
-        'rs': 'Reported in Senate',
-        'fph': 'Failed Passage House',
-        'enr': 'Enrolled Bill',
-        'rch': 'Reference Change House',
-        'fps': 'Failed Passage Senate',
-        'rh': 'Reported in House',
-        'is': 'Introduced in Senate',
-        'eah': 'Engrossed Amendment House',
-        'reah': 'Re-engrossed Amendment House',
-        'es': 'Engrossed in Senate',
-        'ops': 'Ordered to be Printed Senate',
-        'rth': 'Referred to Committee House',
-        'fah': 'Failed Amendment House',
-        'eas': 'Engrossed Amendment Senate',
-        'oph': 'Ordered to be Printed House',
-        'cph': 'Considered and Passed House',
-        'lth': 'Laid on Table in House',
-        'hds': 'Held at Desk Senate',
-        'rds': 'Received in Senate',
-        'ips': 'Indefinitely Postponed Senate',
-        'rfs': 'Referred in Senate',
-        'hdh': 'Held at Desk House',
-        'ath': 'Agreed to House',
-        'rih': 'Referral Instructions House',
-        'pch': 'Placed on Calendar House',
-        'ats': 'Agreed to Senate',
-        'eph': 'Engrossed and Deemed Passed by House',
-        'res': 'Re-engrossed Amendment Senate',
-        'sc': 'Sponsor Change',
-        'cps': 'Considered and Passed Senate',
-        'rdh': 'Received in House'
-    }
 
     def _run_unitedstates_bill_scraper(self):
         """
@@ -166,10 +56,10 @@ class UnitedStatesBillScraper(Scraper):
                     json_data = json.load(json_file)
 
                     # Initialize Object
-                    bill = Bill(self.TYPE_MAP[json_data['bill_type']]['canonical'] + ' ' + json_data['number'],
+                    bill = Bill(constants.TYPE_MAP[json_data['bill_type']]['canonical'] + ' ' + json_data['number'],
                                 json_data['congress'],
                                 json_data['official_title'],
-                                chamber=self.TYPE_MAP[json_data['bill_type']]['chamber']
+                                chamber=constants.TYPE_MAP[json_data['bill_type']]['chamber']
                     )
 
                     # add source of data
@@ -195,18 +85,18 @@ class UnitedStatesBillScraper(Scraper):
                     # add sponsor
                     bill.add_sponsorship_by_identifier(json_data['sponsor']['name'], 'person', 'person', True,
                                                        scheme='thomas_id', identifier=json_data['sponsor']['thomas_id'],
-                                                       chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'])
+                                                       chamber=constants.TYPE_MAP[json_data['bill_type']]['chamber'])
 
                     # add cosponsors
                     for cs in json_data['cosponsors']:
                         bill.add_sponsorship_by_identifier(cs['name'], 'person', 'person', False,
                                                            scheme='thomas_id', identifier=cs['thomas_id'],
-                                                           chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'])
+                                                           chamber=constants.TYPE_MAP[json_data['bill_type']]['chamber'])
 
                     # add introduced_at and actions
                     bill.add_action('date of introduction', datetime_to_date(json_data['introduced_at']),
                                     organization='United States Congress',
-                                    chamber=self.TYPE_MAP[json_data['bill_type']]['chamber'],
+                                    chamber=constants.TYPE_MAP[json_data['bill_type']]['chamber'],
                                     classification='introduced',
                                     related_entities=[])
 
@@ -215,7 +105,7 @@ class UnitedStatesBillScraper(Scraper):
                         bill.actions.append({'date': datetime_to_date(action['acted_at']),
                                              'type': [action['type']],
                                              'description': action['text'],
-                                             'actor': self.TYPE_MAP[json_data['bill_type']]['chamber'],
+                                             'actor': constants.TYPE_MAP[json_data['bill_type']]['chamber'],
                                              'related_entities': []
                                              })
 
@@ -229,9 +119,9 @@ class UnitedStatesBillScraper(Scraper):
                                 version_json_data = json.load(version_file)
                                 for k, v in version_json_data['urls'].items():
                                     bill.versions.append({'date': datetime_to_date(version_json_data['issued_on']),
-                                                          'type': version_json_data['version_code'],
-                                                          'name': self.VERSION_MAP[version_json_data['version_code']],
-                                                          'links': [{'mimetype': k, 'url': v}]})
+                                      'type': version_json_data['version_code'],
+                                      'name': constants.VERSION_MAP[version_json_data['version_code']],
+                                      'links': [{'mimetype': k, 'url': v}]})
                         except IOError:
                             print("Unable to open or parse file with path " + version_path)
                             continue
