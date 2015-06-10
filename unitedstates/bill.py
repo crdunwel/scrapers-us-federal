@@ -1,6 +1,7 @@
 import subprocess
 import os
 import json
+import re
 import traceback
 
 from pupa.scrape import Scraper, Bill
@@ -10,6 +11,8 @@ from . import constants
 from .util import find_files, datetime_to_date
 
 class UnitedStatesBillScraper(Scraper):
+
+    BILL_SPLIT = re.compile("([a-zA-Z]+)([0-9]+)")
 
     def _run_unitedstates_bill_scraper(self):
         """
@@ -70,9 +73,10 @@ class UnitedStatesBillScraper(Scraper):
                         bill.add_subject(subject)
 
                     # add summary
-                    bill.add_abstract(json_data['summary']['text'],
-                                      json_data['summary']['as'],
-                                      json_data['summary']['date'])
+                    if 'summary' in json_data and json_data['summary'] is not None:
+                        bill.add_abstract(json_data['summary']['text'],
+                                          json_data['summary']['as'],
+                                          json_data['summary']['date'])
 
                     # add titles
                     for item in json_data['titles']:
@@ -80,7 +84,13 @@ class UnitedStatesBillScraper(Scraper):
 
                     # add other/related Bills
                     for b in json_data['related_bills']:
-                        bill.add_related_bill(b['name'], b['session'], 'companion')
+                        if 'type' in b and b['type'] == 'bill':
+                            split = b['bill_id'].split('-')
+                            m = UnitedStatesBillScraper.BILL_SPLIT.match(split[0])
+
+                            bill.add_related_bill(constants.TYPE_MAP[m.group(1)]['canonical'] + ' ' + m.group(2),
+                                                  legislative_session=split[1],
+                                                  relation_type='companion')
 
                     # add sponsor
                     bill.add_sponsorship_by_identifier(json_data['sponsor']['name'], 'person', 'person', True,
@@ -95,9 +105,7 @@ class UnitedStatesBillScraper(Scraper):
 
                     # add introduced_at and actions
                     bill.add_action('date of introduction', datetime_to_date(json_data['introduced_at']),
-                                    organization='United States Congress',
                                     chamber=constants.TYPE_MAP[json_data['bill_type']]['chamber'],
-                                    classification='introduced',
                                     related_entities=[])
 
                     # add other actions
@@ -131,10 +139,15 @@ class UnitedStatesBillScraper(Scraper):
 
             except IOError:
                 print("Unable to open file with path " + filename)
+                print(traceback.format_exc())
+                continue
             except KeyError:
                 print("Unable to parse file with path " + filename)
+                print(traceback.format_exc())
+                continue
             except:
-                traceback.format_exc()
+                print('Unknown error with ' + filename)
+                print(traceback.format_exc())
                 continue
 
     def scrape(self):

@@ -132,27 +132,26 @@ class UnitedStatesFloorUpdateScraper(Scraper):
         """
         tree = self._xml_parser(xml)
 
-        congress = tree.xpath('//legislative_congress')[0].get('congress')
+        congress = tree.xpath('.//legislative_congress')[0].get('congress')
 
         house_committees = self._get_current_house_committee_names()
-
-        for fa in tree.xpath('//floor_actions/floor_action'):
-            fa_text = fa.xpath('action_description')[0].xpath('string()')
+        for fa in tree.xpath('.//floor_action'):
+            fa_text = fa.xpath('.//action_description')[0].xpath('string()')
 
             eastern = pytz.timezone('US/Eastern')
             dt = datetime.datetime.strptime(fa.xpath('action_time')[0].get('for-search'), '%Y%m%dT%H:%M:%S')
             event = Event('House Floor Update on {0} at {1}.'.format(dt.strftime('%Y-%m-%d'), dt.strftime('%H:%M:%S')),
                           eastern.localize(dt).astimezone(pytz.utc),
                           'US/Eastern',
-                          {'name': "East Capitol Street Northeast & First St SE, Washington, DC 20004",
-                           'note': 'House Floor',
-                           'url': 'http://www.house.gov/',
-                           'coordinates': {'latitude': '38.889931', 'longitude': '-77.009003'}
-                           },
+                          '',
                           description=fa_text,
                           classification='floor_update')
 
-            event.add_source(self._house_floor_src_url(date_str=tree.xpath('//legislative_day')[0].get('date')),
+            event.set_location("East Capitol Street Northeast & First St SE, Washington, DC 20004",
+                               note='House Floor', url='http://www.house.gov',
+                               coordinates={'latitude': '38.889931', 'longitude': '-77.009003'})
+
+            event.add_source(self._house_floor_src_url(date_str=tree.xpath('.//legislative_day')[0].get('date')),
                              note="Scraped from the Office of the Clerk, U.S. House of Representatives website.")
 
             event.extras['act-id'] = fa.get('act-id')
@@ -160,14 +159,14 @@ class UnitedStatesFloorUpdateScraper(Scraper):
 
             # bills
             ai_b = event.add_agenda_item(description='Bills referenced by this update.')
-            for bill in fa.xpath("//a[@rel='bill']"):
+            for bill in fa.xpath(".//a[@rel='bill']"):
                 bill_name = bill.xpath('string()')
                 ai_b.add_bill(bill_name, id=make_pseudo_id(identifier=bill_code_to_id(bill_name), congress=congress),
                               note="Bill was referenced on the House floor.")
 
             # publaws
             ai_p = event.add_agenda_item(description='Public laws referenced by this update.')
-            for law in fa.xpath("//a[@rel='publaw']"):
+            for law in fa.xpath(".//a[@rel='publaw']"):
                 detail_url = '/'.join(law.get('href').split('/')[0:-2]) + '/content-detail.html'
                 ai_p.add_bill(law.xpath('string()'),
                               id=make_pseudo_id(**self._public_law_detail_scraper(url=detail_url)),
@@ -175,14 +174,14 @@ class UnitedStatesFloorUpdateScraper(Scraper):
 
             # votes
             ai_v = event.add_agenda_item(description='Votes referenced by this update.')
-            for vote in fa.xpath("//a[@rel='vote']"):
+            for vote in fa.xpath(".//a[@rel='vote']"):
                 vote_name = vote.xpath('string()')
                 ai_v.add_vote(vote_name,
                               id=make_pseudo_id(identifier=vote_code_to_id(vote_name), congress=congress),
                               note='Vote was referenced on the House floor.')
 
             # reports
-            for report in fa.xpath("//a[@rel='report']"):
+            for report in fa.xpath(".//a[@rel='report']"):
                 event.add_document('Document referenced by this update.', report.get('href'), media_type='text/html')
 
             for name in house_committees:
@@ -190,6 +189,7 @@ class UnitedStatesFloorUpdateScraper(Scraper):
                     event.add_committee(name, id=make_pseudo_id(name=name))
 
             # TODO identify legislators and add them as participants?
+
 
             yield event
 
@@ -202,7 +202,7 @@ class UnitedStatesFloorUpdateScraper(Scraper):
         """
         tree = self._html_scrape_and_parse(self.HOUSE_BASE_URL + 'floor-download.aspx')
         return list(map(lambda x: dict(zip(['congress','session'], x.get('href').split('-')[1:3])),
-                        tree.xpath("//div[@id='intro_content']//a")))
+                        tree.xpath(".//div[@id='intro_content']//a")))
 
     def _house_floor_update_xml_for(self, **kwargs):
         """

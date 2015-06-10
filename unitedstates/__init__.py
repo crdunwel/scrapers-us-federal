@@ -6,6 +6,7 @@ from .bill import UnitedStatesBillScraper
 from .committee import UnitedStatesCommitteeScraper
 from .floor_update import UnitedStatesFloorUpdateScraper
 
+
 class UnitedStates(Jurisdiction):
     classification = 'government'
     division_id = 'ocd-division/country:us'

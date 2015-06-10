@@ -3,7 +3,7 @@ from pupa.utils import make_pseudo_id
 
 from collections import defaultdict
 import yaml
-import sys
+
 
 class UnitedStatesLegislativeScraper(Scraper):
 
@@ -12,10 +12,25 @@ class UnitedStatesLegislativeScraper(Scraper):
         return yaml.safe_load(resp.text)
 
     def get_url(self, what):
-        return ("https://raw.githubusercontent.com/"
-              + "unitedstates/congress-legislators/master/"
+        return ('https://raw.githubusercontent.com/'
+              + 'unitedstates/congress-legislators/master/'
               + what
-              + ".yaml")
+              + '.yaml')
+
+    def get_image_url(self, bioguide, size='450x550'):
+        """
+        Gets the url for the image of a legislator with input bioguide.
+
+        @param bioguide: bioguide of legislator
+        @type bioguide: string
+        @param size: the size of the desired image (225x275, 450x550)
+        @type size: string
+        @return: url of photo on github
+        @rtype: string
+        """
+        return ('https://raw.githubusercontent.com/unitedstates/images/gh-pages/congress/'
+              + size + '/'
+              + bioguide + '.jpg')
 
     def scrape_current_chambers(self):
         CURRENT_LEGISLATORS = self.get_url('legislators-current')
@@ -58,8 +73,7 @@ class UnitedStatesLegislativeScraper(Scraper):
 
                 if who is None:
                     who = Person(name=name, birth_date=birth_date)
-                    who.add_source(url=CURRENT_LEGISLATORS,
-                                   note="unitedstates project on GitHub")
+                    who.add_source(url=CURRENT_LEGISLATORS, note="unitedstates project on GitHub")
 
                 for term in person.get('terms', []):
                     has_term = True
@@ -70,79 +84,42 @@ class UnitedStatesLegislativeScraper(Scraper):
                     district = term.get('district', None)
                     party = term.get('party', None)
 
-                    chamber = {'rep': 'lower',
-                               'sen': 'upper',}[type_]
+                    chamber = {'rep': self.house,
+                               'sen': self.senate}[type_]
 
                     role = {'rep': 'Representative',
-                            'sen': 'Senator',}[type_]
+                            'sen': 'Senator'}[type_]
 
                     if type_ == "rep" and district is not None:
                         label = "%s for District %s in %s" % (role, district, state)
 
-                        if district == 0:
-                            division_id = (
-                                "ocd-division/country:us/state:{state}".format(
-                                    state=state.lower()))
-                        else:
-                            division_id = ("ocd-division/country:us/"
-                                           "state:{state}/cd:{district}".format(
-                                               state=state.lower(),
-                                               district=district))
+                        division_id = ("ocd-division/country:us/state:{state}".format(state=state.lower()))
 
-                        post = posts.get(division_id)
-                        if post is None:
-                            post = Post(organization_id={
-                                    "rep": self.house,
-                                    "sen": self.senate
-                                }[type_]._id,
-                                division_id=division_id,
-                                label=label, role=role)
-                            posts[division_id] = post
-                            yield post
-
-                        membership = Membership(
-                            post_id=post._id,
-                            role=role,
-                            label=label,
-                            start_date=start_date,
-                            end_date=end_date,
-                            person_id=who._id,
-                            organization_id={
-                                "rep": self.house,
-                                "sen": self.senate,
-                            }[type_]._id)
-                        yield membership
+                        if district != 0:
+                            division_id += "/cd:{district}".format(district=district)
 
                     if type_ == "sen":
+                        label = "Senator for %s" % state
 
-                        division_id = ("ocd-division/country:us/state:{state}".format(
-                            state=state.lower()))
+                        division_id = ("ocd-division/country:us/state:{state}".format(state=state.lower()))
 
-                        label = "Senitor for %s" % (state)
+                    post = posts.get(division_id)
+                    if post is None:
+                        post = Post(organization_id=chamber._id,
+                            division_id=division_id,
+                            label=label, role=role)
+                        posts[division_id] = post
+                        yield post
 
-                        post = posts.get(division_id)
-                        if post is None:
-                            post = Post(organization_id={
-                                    "rep": self.house,
-                                    "sen": self.senate
-                                }[type_]._id,
-                                division_id=division_id,
-                                label=label, role=role)
-                            posts[division_id] = post
-                            yield post
-
-                        membership = Membership(
-                            post_id=post._id,
-                            role=role,
-                            label=label,
-                            start_date=start_date,
-                            end_date=end_date,
-                            person_id=who._id,
-                            organization_id={
-                                "rep": self.house,
-                                "sen": self.senate,
-                            }[type_]._id)
-                        yield membership
+                    membership = Membership(
+                        post_id=post._id,
+                        role=role,
+                        label=label,
+                        start_date=start_date,
+                        end_date=end_date,
+                        person_id=who._id,
+                        organization_id=chamber._id)
+                    yield membership
 
                     if party == "Democrat":
                         party = "Democratic"
@@ -164,6 +141,8 @@ class UnitedStatesLegislativeScraper(Scraper):
                             who.add_identifier(str(v), scheme=key)
                     else:
                         who.add_identifier(str(value), scheme=key)
+                        if key == 'bioguide':
+                            who.image = self.get_image_url(str(value))
 
                 if has_term:
                     yield who
